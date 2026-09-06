@@ -8,6 +8,7 @@
   "zeroconf": [],
   "homekit": {},
   "dependencies": ["frontend", "http"],
+  "after_dependencies": ["lovelace"],
   "codeowners": [
     "@aex351",
     "@bprins"
