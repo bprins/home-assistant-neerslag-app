@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import json
+import re
 from datetime import timedelta
 from random import random
 import random as rand
@@ -17,6 +19,11 @@ from homeassistant.core import HomeAssistant
 _LOGGER = logging.getLogger(__name__)
 
 SCAN_INTERVAL = timedelta(seconds=180)
+
+# gps.buienradar.nl/getrr.php only redirects here nowadays.
+BUIENRADAR_URL = "https://gadgets.buienradar.nl/data/raintext/"
+# A valid raintext line looks like "000|12:10".
+BUIENRADAR_LINE = re.compile(r"^\d{1,3}\|\d{1,2}:\d{2}$")
 
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities):
@@ -147,15 +154,15 @@ class NeerslagSensorBuienalarm(mijnBasis):
             }
         }
 
+        url = (
+            "https://imn-rust-lb.infoplaza.io/v4/nowcast/ba/timeseries/"
+            + str(self._lat) + "/" + str(self._lon)
+            + "/?c=" + str(rand.randint(0, 999999999999999))
+        )
+
         try:
             timeout = aiohttp.ClientTimeout(total=5)
             async with aiohttp.ClientSession() as session:
-                url = (
-                    "https://imn-rust-lb.infoplaza.io/v4/nowcast/ba/timeseries/"
-                    + str(self._lat) + "/" + str(self._lon)
-                    + "/?c=" + str(rand.randint(0, 999999999999999))
-                )
-
                 async with session.get(url, timeout=timeout) as response:
                     raw = await response.text()
                     raw = raw.replace("\r\n", " ")
@@ -209,9 +216,10 @@ class NeerslagSensorBuienalarm(mijnBasis):
 
                     old["precip"] = precip_codes
 
-        except Exception:
-            _LOGGER.info("getBuienalarmData - timeout")
-            pass
+        except asyncio.TimeoutError:
+            _LOGGER.warning("getBuienalarmData - timeout while fetching %s", url)
+        except (aiohttp.ClientError, ValueError) as err:
+            _LOGGER.warning("getBuienalarmData - error while fetching %s: %s", url, err)
 
         return data
 
@@ -260,25 +268,64 @@ class NeerslagSensorBuienradar(mijnBasis):
             self._attrs = await self.getBuienradarData()
         return True
 
-    async def getBuienradarData(self) -> str:
-        data = json.loads('{"data":""}')
-        # return data
-        try:
-            timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession() as session:
-                # https://www.buienradar.nl/overbuienradar/gratis-weerdata
-                url = 'https://gps.buienradar.nl/getrr.php?lat=' + str(self._lat) + '&lon=' + str(self._lon) + '&c=' + str(rand.randint(0, 999999999999999))
-                # _LOGGER.info(url)
-                async with session.get(url, timeout=timeout) as response:
-                    html = await response.text()
-                    dataRequest = ' '.join(html.splitlines())
-                    if dataRequest == "" :
-                        dataRequest = ""
-                    data = json.loads('{"data": "' + dataRequest + '"}')
-                    # _LOGGER.info(data)
-                    await session.close()
-        except:
-            _LOGGER.info("getBuienradarData - timeout")
-            pass
+    async def getBuienradarData(self):
+        """Fetch the Buienradar raintext forecast.
 
+        Buienradar retired gps.buienradar.nl/getrr.php; it now 301-redirects to
+        gadgets.buienradar.nl/data/raintext/, which only serves locations inside
+        the Netherlands or Belgium and answers anything else with a plain-text
+        404 body. That body used to be handed to the card as if it were rain
+        data, so validate the payload before publishing it.
+        """
+        data = {"data": ""}
+
+        url = (
+            BUIENRADAR_URL
+            + "?lat=" + str(self._lat)
+            + "&lon=" + str(self._lon)
+        )
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=timeout) as response:
+                    body = await response.text()
+
+                    if response.status != 200:
+                        _LOGGER.warning(
+                            "getBuienradarData - %s returned HTTP %s: %s",
+                            url,
+                            response.status,
+                            body.strip()[:200],
+                        )
+                        return data
+
+        except asyncio.TimeoutError:
+            _LOGGER.warning("getBuienradarData - timeout while fetching %s", url)
+            return data
+        except aiohttp.ClientError as err:
+            _LOGGER.warning("getBuienradarData - error while fetching %s: %s", url, err)
+            return data
+
+        lines = [line.strip() for line in body.splitlines() if line.strip()]
+
+        if not lines:
+            _LOGGER.warning(
+                "getBuienradarData - empty response for lat=%s lon=%s",
+                self._lat,
+                self._lon,
+            )
+            return data
+
+        if not all(BUIENRADAR_LINE.match(line) for line in lines):
+            # e.g. "Not found: location must be inside the Netherlands or Belgium."
+            _LOGGER.warning(
+                "getBuienradarData - unexpected response for lat=%s lon=%s: %s",
+                self._lat,
+                self._lon,
+                body.strip()[:200],
+            )
+            return data
+
+        data["data"] = " ".join(lines)
         return data
