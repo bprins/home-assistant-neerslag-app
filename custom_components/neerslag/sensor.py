@@ -25,6 +25,10 @@ BUIENRADAR_URL = "https://gadgets.buienradar.nl/data/raintext/"
 # A valid raintext line looks like "000|12:10".
 BUIENRADAR_LINE = re.compile(r"^\d{1,3}\|\d{1,2}:\d{2}$")
 
+# Number of consecutive failed fetches before an enabled sensor is reported
+# unavailable. Tolerates the odd blip without blanking the card.
+FAILURE_THRESHOLD = 3
+
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities):
     """Set up sensor entity."""
@@ -50,9 +54,17 @@ class mijnBasis(Entity):
     _name : str | None
     _lat: float
     _lon: float
+    _failures: int = 0
 
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, enabled: bool):
         _LOGGER.info("Neerslag entity geladen")
+
+    def _register_result(self, success: bool) -> None:
+        """Track consecutive fetch failures so `available` can reflect them."""
+        if success:
+            self._failures = 0
+        else:
+            self._failures += 1
 
     async def mine_update_listener(self, hass: HomeAssistant, config_entry: ConfigEntry, pp=None):
         """Handle options update."""
@@ -62,6 +74,16 @@ class mijnBasis(Entity):
 
         if(self._name == "neerslag_buienradar_regen_data"):
             self._enabled = bool(config_entry.data.get("buienradar"))
+
+        if not self._enabled:
+            _LOGGER.info(
+                "%s is disabled in the Neerslag options; it will report unavailable",
+                self._name,
+            )
+
+        # Pick the change up now instead of at the next poll, which is 180s away.
+        if self.hass is not None and self.entity_id is not None:
+            self.async_schedule_update_ha_state(force_refresh=True)
 
     @property
     def device_info(self):
@@ -78,8 +100,14 @@ class mijnBasis(Entity):
 
     @property
     def available(self) -> bool:
-        """Return True if entity is available."""
-        return self._enabled
+        """Return True if the source is enabled and still fetching successfully.
+
+        A disabled source reports unavailable by design; the log line in
+        mine_update_listener says so, since "unavailable" on its own reads as a
+        fault. Repeated fetch failures now surface here too, instead of the
+        entity claiming to be healthy while publishing nothing.
+        """
+        return self._enabled and self._failures < FAILURE_THRESHOLD
 
     @ property
     def state(self):
@@ -104,7 +132,7 @@ class NeerslagSensorBuienalarm(mijnBasis):
 
         self._name = "neerslag_buienalarm_regen_data"
         self._state = "working"  # None
-        self._attrs = ["data empty"]
+        self._attrs = {"data": {"success": False, "start": None, "delta": 0, "precip": []}}
         self._unique_id = "neerslag-sensor-buienalarm-1"
 
         self._enabled = enabled
@@ -141,6 +169,7 @@ class NeerslagSensorBuienalarm(mijnBasis):
         if(self._enabled == True):
             self._state = random()
             self._attrs = await self.getBuienalarmData()
+            self._register_result(bool(self._attrs["data"]["success"]))
         return True
 
     async def getBuienalarmData(self):
@@ -230,7 +259,7 @@ class NeerslagSensorBuienradar(mijnBasis):
 
         self._name = "neerslag_buienradar_regen_data"
         self._state = "working"  # None
-        self._attrs = ["data empty"]
+        self._attrs = {"data": ""}
         self._unique_id = "neerslag-sensor-buienradar-1"
 
         self._enabled = enabled
@@ -266,6 +295,7 @@ class NeerslagSensorBuienradar(mijnBasis):
         if(self._enabled == True):
             self._state = random()
             self._attrs = await self.getBuienradarData()
+            self._register_result(bool(self._attrs["data"]))
         return True
 
     async def getBuienradarData(self):

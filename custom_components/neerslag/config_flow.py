@@ -13,15 +13,25 @@ from .const import DOMAIN  # pylint:disable=unused-import
 
 _LOGGER = logging.getLogger(__name__)
 
-# TODO adjust the data schema to the data that you need
-STEP_USER_DATA_SCHEMA = vol.Schema({vol.Optional("buienalarm", default=False): bool,
-                                    vol.Optional("buienalarmLatitude", description={"suggested_value": "55.000"}): str,
-                                    vol.Optional("buienalarmLongitude", description={"suggested_value": "5.000"}): str,
-                                    vol.Optional("buienradar", default=False): bool,
-                                    vol.Optional("buienradarLatitude", description={"suggested_value": "55.00"}): str,
-                                    vol.Optional("buienradarLongitude", description={"suggested_value": "5.00"}): str,
-                                    vol.Optional("NeerslagSensorUseHAforLocation", default=True): bool
-                                    })
+def _user_data_schema(hass: core.HomeAssistant) -> vol.Schema:
+    """Build the initial setup schema.
+
+    Suggest the Home Assistant location rather than a fixed point. The old
+    55.000/5.000 default sits in the North Sea, and Buienradar now answers
+    anything outside the Netherlands or Belgium with a 404, so accepting the
+    suggestion produced a sensor that could never return data.
+    """
+    lat = hass.config.latitude
+    lon = hass.config.longitude
+
+    return vol.Schema({vol.Optional("buienalarm", default=False): bool,
+                       vol.Optional("buienalarmLatitude", description={"suggested_value": f"{lat:.3f}"}): str,
+                       vol.Optional("buienalarmLongitude", description={"suggested_value": f"{lon:.3f}"}): str,
+                       vol.Optional("buienradar", default=False): bool,
+                       vol.Optional("buienradarLatitude", description={"suggested_value": f"{lat:.2f}"}): str,
+                       vol.Optional("buienradarLongitude", description={"suggested_value": f"{lon:.2f}"}): str,
+                       vol.Optional("NeerslagSensorUseHAforLocation", default=True): bool
+                       })
 
 
 async def validate_input(hass: core.HomeAssistant, data):
@@ -68,7 +78,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is None:
             return self.async_show_form(
-                step_id="user", data_schema=STEP_USER_DATA_SCHEMA
+                step_id="user", data_schema=_user_data_schema(self.hass)
             )
 
         errors = {}
@@ -91,7 +101,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(title=title, data=data)
 
         return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+            step_id="user", data_schema=_user_data_schema(self.hass), errors=errors
         )
 
     @staticmethod
@@ -115,13 +125,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         # _LOGGER.info(self.config_entry.data.get("buienalarmLatitude"))
         # _LOGGER.info(self.config_entry.data.get("buienalarm"))
         # _LOGGER.info(self.config_entry.data.get("NeerslagSensorUseHAforLocation"))
-        testtest = vol.Schema({vol.Optional("buienalarm", default=self.config_entry.data.get("buienalarm")): bool,
-                               vol.Optional("buienalarmLatitude", default=self.config_entry.data.get("buienalarmLatitude")): str,
-                               vol.Optional("buienalarmLongitude", default=self.config_entry.data.get("buienalarmLongitude")): str,
-                               vol.Optional("buienradar", default=self.config_entry.data.get("buienradar")): bool,
-                               vol.Optional("buienradarLatitude", default=self.config_entry.data.get("buienradarLatitude")): str,
-                               vol.Optional("buienradarLongitude", default=self.config_entry.data.get("buienradarLongitude")): str,
-                               vol.Optional("NeerslagSensorUseHAforLocation", default=self.config_entry.data.get("NeerslagSensorUseHAforLocation")): bool
+        data = self.config_entry.data
+        lat = self.hass.config.latitude
+        lon = self.hass.config.longitude
+
+        testtest = vol.Schema({vol.Optional("buienalarm", default=bool(data.get("buienalarm", False))): bool,
+                               vol.Optional("buienalarmLatitude", default=data.get("buienalarmLatitude") or f"{lat:.3f}"): str,
+                               vol.Optional("buienalarmLongitude", default=data.get("buienalarmLongitude") or f"{lon:.3f}"): str,
+                               vol.Optional("buienradar", default=bool(data.get("buienradar", False))): bool,
+                               vol.Optional("buienradarLatitude", default=data.get("buienradarLatitude") or f"{lat:.2f}"): str,
+                               vol.Optional("buienradarLongitude", default=data.get("buienradarLongitude") or f"{lon:.2f}"): str,
+                               vol.Optional("NeerslagSensorUseHAforLocation", default=bool(data.get("NeerslagSensorUseHAforLocation", True))): bool
                                })
 
         # _LOGGER.info("----->>>>---------------")
