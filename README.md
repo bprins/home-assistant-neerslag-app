@@ -1,5 +1,19 @@
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom_repository-41BDF5.svg)](https://github.com/hacs/integration)
 # Neerslag App
+
+> ### This is a fork
+>
+> The Neerslag App was created by **[@aex351](https://github.com/aex351)** and the original lives at
+> **[aex351/home-assistant-neerslag-app](https://github.com/aex351/home-assistant-neerslag-app)**. All credit for the integration and the
+> card belongs there.
+>
+> This fork exists only to develop and test fixes for
+> [issue #96](https://github.com/aex351/home-assistant-neerslag-app/issues/96) (Buienradar rain data unavailable). It is **not** a
+> replacement or a competing integration, and it is not listed in the HACS default store.
+>
+> **If you just want the integration, install the original.** Use this fork only if you
+> are deliberately testing these changes.
+
 Neerslag app for Home Assistant. All-in-one package (Sensors + Card).
 
 Display rain forecast using Buienalarm and/or Buienradar sensor data. The Neerslag App (and the sensors) is fully configurable via the Home Assistant interface. 
@@ -12,7 +26,7 @@ Display rain forecast using Buienalarm and/or Buienradar sensor data. The Neersl
 * Ability to configure this app via the GUI;
 * Can use build-in Home Assistant configured location.
 
-![Example](https://github.com/aex351/home-assistant-neerslag-app/raw/main/documentation/example.png)
+![Example](https://github.com/bprins/home-assistant-neerslag-app/raw/main/documentation/example.png)
 
 ## Installation overview
 1) Install via HACS or manual;
@@ -21,13 +35,18 @@ Display rain forecast using Buienalarm and/or Buienradar sensor data. The Neersl
 
 
 ## 1a. Install via HACS (recommended)
-This is the recommended option and also allows for easy updates.
-1) Find this repository in HACS and click install
-2) Restart Home Assistant and clear the browser cache;
-3) Add the Neerslag App as an Integration in Home Assistant `(menu: settings -> devices & services -> add integration)`;
-4) Restart Home Assistant and clear the browser cache (optional).
+This fork is not in the HACS default store, so it has to be added as a custom repository.
+1) Remove any existing Neerslag App install first — both write to `custom_components/neerslag`;
+2) In HACS, open the menu (three dots) and choose `Custom repositories`;
+3) Add `https://github.com/bprins/home-assistant-neerslag-app` with type `Integration`;
+4) Open the new `Neerslag App` entry and click download;
+5) Restart Home Assistant and clear the browser cache;
+6) Add the Neerslag App as an Integration in Home Assistant `(menu: settings -> devices & services -> add integration)`;
+7) Restart Home Assistant and clear the browser cache (optional).
 
-For updates go to the Community Store (HACS) and click update.
+For updates go to the Community Store (HACS) and click update. Note that HACS decides an
+update is available from the `version` in `manifest.json`, so this fork has to bump it for
+each change it ships.
 
 ## 1b. Manual install
 Not recommended, you will need to track updates manually by browsing to the repository;
@@ -77,3 +96,31 @@ Note: By default auto zoom is disabled. Which gives the graph a fixed starting p
 ```yaml
 autozoom: false
 ```
+
+## Changes in this fork
+Everything below is a fix on top of the original; nothing else is intentionally different.
+
+* **Buienradar endpoint.** `gps.buienradar.nl/getrr.php` is retired and now redirects to
+  `gadgets.buienradar.nl/data/raintext/`, which serves only the Netherlands and Belgium and
+  answers anything else with an HTTP 404 whose body is a sentence of plain English. The old
+  code never checked the status and passed that sentence to the card as if it were rain
+  data. It now calls the endpoint directly, checks the status, and validates the payload.
+* **Error reporting.** A bare `except:` logged every failure as `timeout` at INFO level, so
+  no failure was diagnosable. Failures are now logged at warning level with the URL, the
+  status, and the response.
+* **Availability.** `available` returned only "is this source enabled", so a source switched
+  off in the options looked identical to a broken one, while a sensor whose fetch kept
+  failing still reported healthy. Repeated failures now mark the sensor unavailable, and a
+  disabled source says so in the log.
+* **Default coordinates.** The setup form suggested `55.00 / 5.00`, a point in the North Sea,
+  which Buienradar now rejects with a 404. It suggests the Home Assistant location instead.
+* **Frontend.** The ~240 KB card bundle was served with caching disabled and re-downloaded on
+  every page load, which can lose the frontend's 2 second custom-element registration window
+  and leave `Custom element doesn't exist: neerslag-card`. It is now cached and busted by
+  version. `manifest.json` also declares its `frontend` and `http` dependencies.
+
+## Credits
+The Neerslag App and the Neerslag Card are the work of
+[@aex351](https://github.com/aex351) — see the original repository at
+[aex351/home-assistant-neerslag-app](https://github.com/aex351/home-assistant-neerslag-app). This fork only carries the fixes listed above,
+with the intention of contributing them back upstream.

@@ -2,16 +2,16 @@
   "domain": "neerslag",
   "name": "Neerslag App (Buienalarm / Buienradar)",
   "config_flow": true,
-  "documentation": "https://github.com/aex351/home-assistant-neerslag-app",
+  "documentation": "https://github.com/bprins/home-assistant-neerslag-app",
   "requirements": [],
   "ssdp": [],
   "zeroconf": [],
   "homekit": {},
   "dependencies": ["frontend", "http"],
-  "issue_tracker": "https://github.com/aex351/home-assistant-neerslag-app/issues",
   "codeowners": [
-    "@aex351"
+    "@aex351",
+    "@bprins"
   ],
   "iot_class" : "cloud_polling",
-  "version": "2025.12.03.0"
+  "version": "2026.09.06.0"
 }
